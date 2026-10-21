@@ -244,6 +244,22 @@ Require(ledExchange.Requests.Any(f=>DeviceProtocol.Word(f.AsSpan(1),4)==0x3800)&
 await ledClient.BeginInput();Require(DeviceProtocol.Word(ledExchange.Requests[^1].AsSpan(1),4)==0x3800,"LED off preserved when input capture begins");
 
 Require(DongleNames.Encode(new string('A',31),31).Length==31,"original updater name capacity31 permits31 bytes without overflowing field");
+var idleExchange=new ScriptedExchange();var idleClient=new DeviceClient(idleExchange);
+await idleClient.PreparePcInput();
+Require(idleExchange.Enabled&&DeviceProtocol.Word(idleExchange.Requests[^2].AsSpan(1),4)==0x2800&&DeviceProtocol.Word(idleExchange.Requests[^1].AsSpan(1),4)==0x3888,"cold input session can prepare acknowledged PC idle state without a manual switch");
+Require(!idleExchange.Requests.Any(f=>DeviceProtocol.Word(f.AsSpan(1),1)==0x8000&&DeviceProtocol.Word(f.AsSpan(1),0)==0xeb01),"PC idle preparation never selects or connects a phone");
+Require(!idleExchange.Requests.Any(f=>DeviceProtocol.Word(f.AsSpan(1),4) is 0x23c0 or 0x23c1),"PC idle preparation never starts pairing");
+idleExchange.Requests.Clear();await idleClient.PreparePcInput([0x2504,0x2701,0x2d11]);
+Require(DeviceProtocol.Word(idleExchange.Requests[0].AsSpan(1),7)==0x2800&&idleExchange.Requests.Count==2,"idle preparation releases retained keys and buttons before its final PC state");
+var idleOffExchange=new ScriptedExchange();await new DeviceClient(idleOffExchange){LedEnabled=false}.PreparePcInput();
+Require(DeviceProtocol.Word(idleOffExchange.Requests[^1].AsSpan(1),4)==0x3800,"initial PC idle preparation respects LED off");
+var invalidIdleExchange=new ScriptedExchange();bool idleRejected=false;
+try{await new DeviceClient(invalidIdleExchange).PreparePcInput([0x2404]);}catch(ArgumentException){idleRejected=true;}
+Require(idleRejected&&invalidIdleExchange.Requests.Count==0,"idle preparation rejects key-down before any device traffic");
+var rejectedIdleExchange=new ScriptedExchange{RejectWord=0x2800};bool releaseRejected=false;
+try{await new DeviceClient(rejectedIdleExchange).PreparePcInput();}catch(DeviceCommandRejectedException){releaseRejected=true;}
+Require(releaseRejected,"rejected idle release cannot be mistaken for confirmed remote input readiness");
+
 Console.WriteLine("ALL CHECKS PASSED");
 
 sealed class ScriptedExchange : IReportExchange

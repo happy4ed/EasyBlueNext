@@ -26,10 +26,12 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromMilliseconds(40)};
     private readonly DwellTracker dwell=new();
     private bool ready,busy,closing,shutdownComplete;
+    private bool automaticPrepared;
+    private string? automaticPreparationError;
     private bool previousCapture,polling,pairRequestQueued;
     private TaskCompletionSource? pollFinished;
     private Task pairStopTask=Task.CompletedTask;
-    private string? lastAutoCandidate;
+    private string? lastAutoCandidate,lastAutomaticPause;
     private EdgeCountdown? edgeCountdown;
     private ConnectionToast? connectionToast;
     private CancellationTokenSource? switchCancellation;
@@ -57,9 +59,9 @@ public partial class MainWindow : Window
     {
         if(AutoStatus==null)return;
         int routes=VisibleLayouts().Count(x=>ContactsOf(x).Any());
-        AutoStatus.Text=!preferences.AutoSwitch?"자동 전환 꺼짐":client==null?"자동 전환 대기 · USB 연결을 확인하세요":pairFailurePaused?"오류 후 일시 중지 · 자동 전환을 껐다 켜거나 새로고침하세요":routes==0?"자동 전환 경로 없음 · 기기를 모니터에 붙여 파란 경계를 만드세요":$"자동 전환 켜짐 · 연결 경로 {routes}개 · 파란 경계에서 {preferences.DwellSeconds:0.0}초 대기";
+        AutoStatus.Text=!preferences.AutoSwitch?"자동 전환 꺼짐":client==null?"자동 전환 대기 · USB 연결을 확인하세요":!automaticPrepared||input?.ReadyForAutomatic!=true?"자동 전환 준비 대기 · "+(automaticPreparationError??"입력 세션과 경계 감시 확인 중"):pairFailurePaused?"오류 후 일시 중지 · 자동 전환을 껐다 켜거나 새로고침하세요":routes==0?"자동 전환 경로 없음 · 기기를 모니터에 붙여 파란 경계를 만드세요":$"자동 전환 켜짐 · 연결 경로 {routes}개 · 파란 경계에서 {preferences.DwellSeconds:0.0}초 대기";
     }
-    private long nextPoll,switchVersion,nextDeviceScan;
+    private long nextPoll,switchVersion,nextDeviceScan,nextMonitorPreparation;
     private bool allowDeviceRecovery=true;
     private string? blockedRoute,lastTarget;
     private string? dragging;
@@ -143,6 +145,7 @@ public partial class MainWindow : Window
     private async Task Scan()
     {
         if(busy||pairing||pairStopping)return;pairFailurePaused=false;busy=true;ScanButton.IsEnabled=false;PairButton.IsEnabled=false;
+        automaticPrepared=false;automaticPreparationError=null;blockedRoute=null;dwell.Reset();lastAutoCandidate=null;
         StatusText.Text="USB와 저장된 기기를 확인하고 있습니다…";
         try
         {
@@ -175,11 +178,33 @@ public partial class MainWindow : Window
                 UsbLabel.Text=found.Count==0?"○ USB 연결 안 됨":"○ 장치 통신 실패";
                 StatusText.Text=lastError?.Message??"EasyBlue USB를 연결하고 새로고침해 주세요.";
             }
-            else{try{input?.StartMonitoring();}catch(Exception ex){Record(ex.Message);}UsbLabel.Text="● EasyBlue 연결됨";StatusText.Text=$"저장된 기기 {paired.Count}개 · 기기 관리에서 단축키 지정";}
+            else
+            {
+                UsbLabel.Text="● EasyBlue 연결됨";
+                await PrepareAutomaticMonitoring();
+                StatusText.Text=automaticPrepared?$"저장된 기기 {paired.Count}개 · 입력 감시 준비 완료":"자동 전환 준비 대기: "+automaticPreparationError;
+            }
             EnsureLayouts();RefreshRows();Draw();
         }
         catch(Exception ex){Record(ex.Message);StatusText.Text="장치 검색 실패: "+ex.Message;}
         finally{busy=false;ScanButton.IsEnabled=true;PairButton.IsEnabled=client!=null;nextPoll=Environment.TickCount64+2500;nextDeviceScan=Environment.TickCount64+10000;}
+    }
+    private async Task PrepareAutomaticMonitoring()
+    {
+        nextMonitorPreparation=Environment.TickCount64+5000;
+        automaticPrepared=false;
+        try
+        {
+            if(input==null||client==null)throw new InvalidOperationException("입력 엔진과 동글 연결을 확인해 주세요.");
+            await input.PrepareMonitoring(client,paired.Any(d=>d.Connected));
+            automaticPrepared=input.ReadyForAutomatic;
+            if(!automaticPrepared)throw new IOException("PC 경계 감시를 시작하지 못했습니다.");
+            automaticPreparationError=null;blockedRoute=null;dwell.Reset();lastAutoCandidate=null;
+            Record("입력 세션 연결 및 PC 경계 감시 준비 완료 · 수동 전환 불필요");
+            if(paired.Any(d=>d.Connected)&&!input.ReleaseConfirmed)Record("초기 원격 키 해제 미확인 · 경계 감시는 유지하고 실제 전환 때 다시 검증합니다.");
+        }
+        catch(Exception ex){automaticPreparationError=ex.Message;Record("자동 전환 준비 실패: "+ex.Message);}
+        UpdateAutoStatus();
     }
     private void EnsureLayouts()
     {
@@ -240,7 +265,7 @@ public partial class MainWindow : Window
             await client.BeginInput(deadline.Token);
             if(closing||request!=Interlocked.Read(ref switchVersion))return;
             input.Speed=SpeedSlider.Value;input.Acceleration=preferences.MouseAcceleration;input.WheelSpeed=preferences.WheelSpeed;input.KoreanCtrlSpace=preferences.KoreanCtrlSpace;input.Activate(client,id,layout.PixelWidth,layout.PixelHeight,monitor.Pixels,ex,ey);
-            pairFailurePaused=false;lastTarget=id;preferences=preferences with{LastDeviceId=id};Save();dwell.Reset();StatusText.Text=layout.Name+"로 입력 중 · "+ShortcutText(preferences.ReturnShortcut)+"로 PC 복귀";Record(StatusText.Text);RefreshRows();Draw();completed=true;connectionToast.Update(layout.Name,"success","입력 전환 완료",2600);
+            automaticPrepared=true;automaticPreparationError=null;pairFailurePaused=false;lastTarget=id;preferences=preferences with{LastDeviceId=id};Save();dwell.Reset();StatusText.Text=layout.Name+"로 입력 중 · "+ShortcutText(preferences.ReturnShortcut)+"로 PC 복귀";Record(StatusText.Text);RefreshRows();Draw();completed=true;connectionToast.Update(layout.Name,"success","입력 전환 완료",2600);
         }
         catch(Exception ex){input.Emergency("전환하지 못해 PC 입력을 유지합니다.",false);blockedRoute=id;string reason=ex is OperationCanceledException?(request==Interlocked.Read(ref switchVersion)?"10초 안에 연결되지 않았습니다.":"기기 전환을 취소했습니다."):ex.Message;
             bool canceled=request!=Interlocked.Read(ref switchVersion);StatusText.Text=(canceled?"전환 취소: ":"전환 실패: ")+reason;Record(StatusText.Text);
@@ -253,12 +278,16 @@ public partial class MainWindow : Window
     {
         if(closing||input==null){HideCountdown();return;}input.Pulse();
         if(client==null&&allowDeviceRecovery&&!busy&&!pairing&&!pairStopping&&!pairRequestQueued&&!traySwitchQueued&&!pairFailurePaused&&pairWindow==null&&Environment.TickCount64>=nextDeviceScan){nextDeviceScan=Environment.TickCount64+10000;await Scan();if(closing)return;}
+        if(client!=null&&(!automaticPrepared||!input.ReadyForAutomatic)&&!input.Active&&!busy&&!pairing&&!pairStopping&&!pairRequestQueued&&!traySwitchQueued&&!pairFailurePaused&&Environment.TickCount64>=nextMonitorPreparation)
+        {busy=true;try{await PrepareAutomaticMonitoring();}finally{busy=false;}if(closing)return;}
         if(previousCapture!=input.Active){previousCapture=input.Active;Draw();}
         if(input.Active)input.Speed=SpeedSlider.Value;
         if(!pairFailurePaused&&!busy&&client!=null&&!input.Active&&Environment.TickCount64>=nextPoll){nextPoll=Environment.TickCount64+2500;await Poll();}
-        if(pairing||pairStopping||pairFailurePaused||dragging!=null||input.EditingShortcut||!preferences.AutoSwitch||client==null){dwell.Reset();HideCountdown();return;}
-        if(traySwitchQueued||pairRequestQueued||busy&&!polling){dwell.Reset();HideCountdown();return;}
-        if(preferences.AvoidDrag&&(input.Dragging||InputEngine.PcDragging)){dwell.Reset();HideCountdown();return;}
+        UpdateShortcutCapture();
+        string? pause=!preferences.AutoSwitch?"자동 전환 꺼짐":client==null?"자동 전환 대기 · USB 연결 안 됨":!automaticPrepared||!input.Active&&!input.ReadyForAutomatic?"자동 전환 준비 대기 · 새로고침으로 입력 감시를 확인하세요":pairFailurePaused?"자동 전환 일시 중지 · 오류 후 새로고침 또는 껐다 켜기":pairing||pairStopping?"자동 전환 일시 중지 · 페어링 작업 중":dragging!=null?"자동 전환 일시 중지 · 기기 배치 중":input.EditingShortcut?"자동 전환 일시 중지 · 단축키 입력 중":traySwitchQueued||pairRequestQueued||busy&&!polling?"자동 전환 일시 중지 · 장치 작업 중":preferences.AvoidDrag&&(input.Dragging||InputEngine.PcDragging)?"자동 전환 일시 중지 · 마우스 버튼 누름":null;
+        if(pause!=lastAutomaticPause)
+        {lastAutomaticPause=pause;Record(pause??"자동 전환 경계 감시 재개");if(pause!=null)AutoStatus.Text=pause;else UpdateAutoStatus();}
+        if(pause!=null){if(AutoStatus.Text!=pause)AutoStatus.Text=pause;dwell.Reset();HideCountdown();return;}
         string? target=null;Attachment? route=null;double axis=0;
         if(!input.Active&&InputEngine.GetCursorPos(out var p))
         {
@@ -325,7 +354,7 @@ public partial class MainWindow : Window
             input?.Emergency("장치 연결이 끊겨 PC로 복귀했습니다.",false);
             paired=paired.Select(d=>d with{Connected=false}).ToList();RefreshRows();
             pairing=false;if(pairText!=null)pairText.Text="장치 통신이 끊겼습니다. 창을 닫고 새로고침해 주세요.";
-            client=null;transport?.Dispose();transport=null;PairButton.IsEnabled=false;UsbLabel.Text="○ 통신 끊김";
+            automaticPrepared=false;client=null;transport?.Dispose();transport=null;PairButton.IsEnabled=false;UsbLabel.Text="○ 통신 끊김";
             Record(ex.Message);StatusText.Text="장치 응답 실패: "+ex.Message;
         }
         finally{polling=false;busy=false;pollFinished?.TrySetResult();}

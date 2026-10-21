@@ -1,6 +1,6 @@
 {
-  "method": "Executed scripted core checks including shortcut path/argument policy; Windows Shell Link COM/GUI and physical hardware unverified",
-  "passed": 176,
+  "method": "Executed scripted core checks including PC idle preparation; Windows GUI and physical hardware unverified",
+  "passed": 183,
   "cases": [
     "startup shortcut preserves Unicode and spaced executable paths",
     "startup shortcut compares Windows paths without case sensitivity",
@@ -177,7 +177,14 @@
     "unsupported name encoding rejected before USB access",
     "LED off uses original all-zero indicator mode during pairing",
     "LED off preserved when input capture begins",
-    "original updater name capacity31 permits31 bytes without overflowing field"
+    "original updater name capacity31 permits31 bytes without overflowing field",
+    "cold input session can prepare acknowledged PC idle state without a manual switch",
+    "PC idle preparation never selects or connects a phone",
+    "PC idle preparation never starts pairing",
+    "idle preparation releases retained keys and buttons before its final PC state",
+    "initial PC idle preparation respects LED off",
+    "idle preparation rejects key-down before any device traffic",
+    "rejected idle release cannot be mistaken for confirmed remote input readiness"
   ],
   "windows_hardware_verified": false,
   "startup_method": "per-user Startup folder shortcut"

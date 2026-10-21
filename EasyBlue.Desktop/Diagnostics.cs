@@ -18,7 +18,9 @@ public partial class MainWindow
         DiagnosticStartButton.IsEnabled=false;DiagnosticStopButton.IsEnabled=true;
         DiagnosticStateText.Text="● 진단 수집 중 · 진단 종료를 누르면 중단합니다.";
         Record("진단 시작 · EasyBlue "+System.Reflection.Assembly.GetExecutingAssembly().GetName().Version);
-        Record(UsbLabel.Text);Record(StatusText.Text);
+        Record(UsbLabel.Text);Record(StatusText.Text);Record(AutoStatus.Text);
+        Record($"입력 감시 준비={automaticPrepared}; 엔진 준비={input?.ReadyForAutomatic}; 원격 키 해제={input?.ReleaseConfirmed}; 경로 수={VisibleLayouts().Sum(d=>ContactsOf(d).Count)}");
+        if(InputEngine.GetCursorPos(out var pointer))Record($"PC 실제 커서={pointer.X},{pointer.Y}");
         await RefreshStartupStatus();
     }
     private void StopDiagnostics(object sender,RoutedEventArgs e)

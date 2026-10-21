@@ -31,7 +31,7 @@ internal sealed class InputEngine : IDisposable
     private readonly System.Threading.Timer watchdog;
     private DeviceClient? client;
     private volatile bool active;
-    private bool releaseConfirmed;
+    private volatile bool releaseConfirmed,remoteAvailable;
     private long epoch,heartbeat=Environment.TickCount64,lastAck=Environment.TickCount64,queuedAt;
     private int queued,pendingX,pendingY;
     private long motionStarted;
@@ -45,6 +45,8 @@ internal sealed class InputEngine : IDisposable
     private double wheelRemainder;
     public bool KoreanCtrlSpace {get;set;}=true;
     public bool Active=>active;
+    public bool ReadyForAutomatic=>client!=null&&mouseHook!=0&&keyHook!=0;
+    public bool ReleaseConfirmed=>releaseConfirmed;
     public bool Dragging=>Volatile.Read(ref buttons)!=0;
     public (double X,double Y) VirtualPosition {get {lock(sync)return(vx,vy);}}
     public event Action<string>? Released;
@@ -279,10 +281,18 @@ internal sealed class InputEngine : IDisposable
         Emergency("PC 입력으로 복귀했습니다.",false);
         await ReleaseRemote();
     }
+    public async Task PrepareMonitoring(DeviceClient next,bool bluetoothConnected)
+    {
+        if(active)throw new InvalidOperationException("PC 입력 상태에서 감시를 준비해야 합니다.");
+        client=next;remoteAvailable=bluetoothConnected;StartMonitoring();
+        // Watching the PC edge must not require a prior Bluetooth/input round trip.
+        // Only an already connected remote can acknowledge a release at startup.
+        if(bluetoothConnected)await ReleaseRemote();
+    }
     public async Task AttachClient(DeviceClient next)
     {
         if(active)throw new InvalidOperationException("먼저 PC로 복귀해야 합니다.");
-        client=next;await ReleaseRemote();
+        client=next;remoteAvailable=true;await ReleaseRemote();
         if(!releaseConfirmed)throw new InvalidOperationException("키·버튼 해제 응답을 확인하지 못했습니다. 새로고침 후 다시 전환하세요.");
     }
     private async Task ReleaseRemote()
@@ -293,11 +303,11 @@ internal sealed class InputEngine : IDisposable
         releaseConfirmed=false;
         ushort[] releases;
         releases=held.SnapshotReleases();
-        if(client==null)return;
+        if(client==null||!remoteAvailable)return;
         try
         {
-            foreach(var batch in releases.Chunk(12))await client.Command(batch).WaitAsync(TimeSpan.FromSeconds(3));
-            await client.EndInput().WaitAsync(TimeSpan.FromSeconds(3));
+            using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await client.PreparePcInput(releases,deadline.Token);
             held.ConfirmReleased(releases);releaseConfirmed=true;
         }catch { }
         }finally{releaseGate.Release();}

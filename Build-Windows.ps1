@@ -17,3 +17,5 @@ Copy-Item Notes/Original-settings-inventory.md artifacts/win-x64/original-settin
 Copy-Item Notes/0.3.2-changes.md artifacts/win-x64/changes-0.3.2.md
 
 Copy-Item Notes/0.3.3-changes.md artifacts/win-x64/changes-0.3.3.md
+
+Copy-Item Notes/0.3.4-changes.md artifacts/win-x64/changes-0.3.4.md

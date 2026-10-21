@@ -25,10 +25,15 @@ public partial class MainWindow
         ReturnShortcutBox.Text=ShortcutText(preferences.ReturnShortcut);LastShortcutBox.Text=ShortcutText(preferences.LastDeviceShortcut);
         ReturnButton.Content="PC 복귀 · "+ShortcutText(preferences.ReturnShortcut);
     }
+    private FrameworkElement? shortcutEditor;
+    private void UpdateShortcutCapture()
+    {
+        if(input!=null)input.EditingShortcut=shortcutEditor?.IsKeyboardFocusWithin==true&&Window.GetWindow(shortcutEditor)?.IsActive==true;
+    }
     private async void ShortcutFocus(object sender,KeyboardFocusChangedEventArgs e)
-    {if(input!=null){input.EditingShortcut=true;await input.Stop();}}
+    {shortcutEditor=sender as FrameworkElement;UpdateShortcutCapture();if(input!=null)await input.Stop();}
     private void ShortcutBlur(object sender,KeyboardFocusChangedEventArgs e)
-    {if(input!=null)input.EditingShortcut=false;}
+    {if(ReferenceEquals(shortcutEditor,sender))shortcutEditor=null;UpdateShortcutCapture();}
     private void ShortcutKey(object sender,KeyEventArgs e)
     {
         e.Handled=true;

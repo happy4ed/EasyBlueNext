@@ -216,6 +216,16 @@ public sealed partial class DeviceClient(IReportExchange transport)
         ushort mode=(DeviceProtocol.Word(state,0)&3) switch{1=>0x38a8,3=>0x388b,_=>0x3888};
         await Command([enabled?mode:(ushort)0x3800],ct);
     }
+    public async Task PreparePcInput(IReadOnlyList<ushort>? releases=null,CancellationToken ct=default)
+    {
+        ushort[] words=(releases??[]).ToArray();
+        if(words.Any(word=>word!=0x2800&&(word&0xff00) is not (0x2500 or 0x2700 or 0x2d00)))
+            throw new ArgumentException("PC 대기 준비에는 키·버튼 해제 명령만 사용할 수 있습니다.",nameof(releases));
+        if(!words.Contains((ushort)0x2800))words=[..words,0x2800];
+        await Initialize(ct);
+        foreach(var batch in words.Chunk(12))await Command(batch,ct);
+        await EndInput(ct);
+    }
     public Task EndInput(CancellationToken ct=default)=>Command([LedEnabled?(ushort)0x3888:(ushort)0x3800],ct);
     public Task Disconnect(CancellationToken ct=default)=>Command([0xc000],ct,0x8000);
 }
