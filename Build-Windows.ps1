@@ -11,4 +11,5 @@ Copy-Item README.txt,verification-core.json artifacts/win-x64
 Copy-Item Notes/0.2.2-protocol-audit.md artifacts/win-x64/protocol-audit.md
 Copy-Item Notes/0.2.3-changes.md artifacts/win-x64/changes-0.2.3.md
 Copy-Item Notes/0.3.0-changes.md artifacts/win-x64/changes-0.3.0.md
+Copy-Item Notes/0.3.1-changes.md artifacts/win-x64/changes-0.3.1.md
 Copy-Item Notes/Original-settings-inventory.md artifacts/win-x64/original-settings.md

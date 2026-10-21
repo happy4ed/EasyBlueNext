@@ -75,10 +75,48 @@ public partial class MainWindow
         var menu=new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("EasyBlue 열기",null,(_,_)=>Dispatcher.BeginInvoke(ShowFromTray));
         menu.Items.Add("PC 입력으로 복귀",null,(_,_)=>Dispatcher.BeginInvoke(()=>input?.Emergency("PC 입력으로 복귀했습니다.",false)));
-        menu.Items.Add("마지막 기기 연결",null,(_,_)=>Dispatcher.BeginInvoke(async()=>{if(lastTarget!=null)await Switch(lastTarget);}));
+        menu.Opening+=(_,_)=>PopulateTrayMenu(menu);
+        PopulateTrayMenu(menu);
+        tray.ContextMenuStrip=menu;tray.DoubleClick+=(_,_)=>Dispatcher.BeginInvoke(ShowFromTray);
+    }
+    private bool traySwitchQueued;
+    private void PopulateTrayMenu(System.Windows.Forms.ContextMenuStrip menu)
+    {
+        // Keep the two permanent actions; rebuild from the same cached device list as the main window.
+        while(menu.Items.Count>2){var old=menu.Items[2];menu.Items.RemoveAt(2);old.Dispose();}
+        bool available=client!=null&&!closing&&!pairing&&!pairStopping&&!pairRequestQueued&&!traySwitchQueued&&(!busy||polling);
+        var last=menu.Items.Add("마지막 기기 연결",null,(_,_)=>Dispatcher.BeginInvoke(async()=>{if(lastTarget!=null)await SwitchFromTray(lastTarget);}));
+        last.Enabled=available&&paired.Any(d=>d.Id==lastTarget);
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add(new System.Windows.Forms.ToolStripMenuItem("등록된 기기"){Enabled=false});
+        foreach(var device in paired.OrderBy(d=>d.Slot))
+        {
+            string id=device.Id;
+            string name=preferences.Devices.FirstOrDefault(d=>d.Id==id)?.Name??device.Label;
+            var item=new System.Windows.Forms.ToolStripMenuItem(name.Replace("&","&&")+" · "+(device.Connected?"연결됨":"등록됨")){
+                Checked=device.Connected,Enabled=available,
+                ShortcutKeyDisplayString=preferences.DeviceShortcuts.TryGetValue(id,out var shortcut)?ShortcutText(shortcut):""
+            };
+            item.Click+=(_,_)=>Dispatcher.BeginInvoke(async()=>await SwitchFromTray(id));
+            menu.Items.Add(item);
+        }
+        if(paired.Count==0)menu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(client==null?"EasyBlue USB를 연결해 주세요":"등록된 기기가 없습니다"){Enabled=false});
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add("종료",null,(_,_)=>Dispatcher.BeginInvoke(()=>{exitRequested=true;Close();}));
-        tray.ContextMenuStrip=menu;tray.DoubleClick+=(_,_)=>Dispatcher.BeginInvoke(ShowFromTray);
+    }
+    private async Task SwitchFromTray(string id)
+    {
+        if(traySwitchQueued||closing||pairing||pairStopping||pairRequestQueued||client==null||busy&&!polling)return;
+        traySwitchQueued=true;
+        try
+        {
+            // Reserve this click before waiting so the next status poll cannot steal it.
+            if(polling&&pollFinished is { } pending)await pending.Task;
+            if(!closing&&!pairing&&!pairStopping&&!pairRequestQueued)await Switch(id);
+            if(input?.Active!=true&&tray!=null&&!closing)
+                tray.ShowBalloonTip(4000,"EasyBlue",StatusText.Text,System.Windows.Forms.ToolTipIcon.Info);
+        }
+        finally{traySwitchQueued=false;}
     }
     internal void ShowFromTray(){Show();WindowState=WindowState.Normal;Activate();}
     private void HideToTray()

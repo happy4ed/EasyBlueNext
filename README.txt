@@ -1,8 +1,8 @@
-EasyBlue Next 0.3.0 — 기능 통합 후보본 / Windows x64
-2026-10-20
+EasyBlue Next 0.3.1 — 기능 통합 후보본 / Windows x64
+2026-10-21
 
 설치
-- EasyBlue-Next-0.3.0-Setup.exe를 실행하면 현재 사용자에게 설치됩니다.
+- EasyBlue-Next-0.3.1-Setup.exe를 실행하면 현재 사용자에게 설치됩니다.
 - 시작 메뉴와 앱 제거 항목을 등록하며, 시작 시 실행/바탕 화면 바로 가기를 선택할 수 있습니다.
 - 기존 버전을 트레이에서 종료하고 설치하세요. 설정과 동글 이름 백업은 제거 후에도 남습니다.
 
@@ -125,3 +125,5 @@ EasyBlue Next 0.3.0 — 기능 통합 후보본 / Windows x64
 Windows .NET10 SDK: Build-Windows.ps1
 핵심 검사: dotnet run --project EasyBlue.Checks -c Release
 소스 폴더는 Rewrite 아래입니다. 별도 원본 EBTiny.exe/KMHook.dll 없이 실행하도록 구현했습니다.
+
+0.3.1: 트레이 우클릭 메뉴에서 등록된 기기의 이름, 연결 상태, 단축키를 확인하고 클릭하여 연결·입력 전환할 수 있습니다. 등록됨은 온라인 여부를 보장하지 않습니다.

@@ -248,7 +248,7 @@ public partial class MainWindow : Window
         if(input.Active)input.Speed=SpeedSlider.Value;
         if(!pairFailurePaused&&!busy&&client!=null&&!input.Active&&Environment.TickCount64>=nextPoll){nextPoll=Environment.TickCount64+2500;await Poll();}
         if(pairing||pairStopping||pairFailurePaused||dragging!=null||input.EditingShortcut||!preferences.AutoSwitch||client==null){dwell.Reset();HideCountdown();return;}
-        if(pairRequestQueued||busy&&!polling){dwell.Reset();HideCountdown();return;}
+        if(traySwitchQueued||pairRequestQueued||busy&&!polling){dwell.Reset();HideCountdown();return;}
         if(preferences.AvoidDrag&&(input.Dragging||InputEngine.PcDragging)){dwell.Reset();HideCountdown();return;}
         string? target=null;Attachment? route=null;double axis=0;
         if(!input.Active&&InputEngine.GetCursorPos(out var p))
@@ -303,7 +303,7 @@ public partial class MainWindow : Window
     }
     private async Task Poll()
     {
-        if(client==null||busy||pairFailurePaused||pairStopping||pairRequestQueued)return;busy=true;polling=true;pollFinished=new(TaskCreationOptions.RunContinuationsAsynchronously);
+        if(client==null||busy||pairFailurePaused||pairStopping||pairRequestQueued||traySwitchQueued)return;busy=true;polling=true;pollFinished=new(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
             paired=(await client.Devices()).ToList();EnsureLayouts();RefreshRows();Draw();
