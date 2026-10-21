@@ -240,11 +240,11 @@ public partial class MainWindow : Window
             await client.BeginInput(deadline.Token);
             if(closing||request!=Interlocked.Read(ref switchVersion))return;
             input.Speed=SpeedSlider.Value;input.Acceleration=preferences.MouseAcceleration;input.WheelSpeed=preferences.WheelSpeed;input.KoreanCtrlSpace=preferences.KoreanCtrlSpace;input.Activate(client,id,layout.PixelWidth,layout.PixelHeight,monitor.Pixels,ex,ey);
-            pairFailurePaused=false;lastTarget=id;preferences=preferences with{LastDeviceId=id};Save();dwell.Reset();StatusText.Text=layout.Name+"로 입력 중 · "+ShortcutText(preferences.ReturnShortcut)+"로 PC 복귀";Record(StatusText.Text);RefreshRows();Draw();completed=true;connectionToast.Update(layout.Name,"success","입력 전환 완료",1800);
+            pairFailurePaused=false;lastTarget=id;preferences=preferences with{LastDeviceId=id};Save();dwell.Reset();StatusText.Text=layout.Name+"로 입력 중 · "+ShortcutText(preferences.ReturnShortcut)+"로 PC 복귀";Record(StatusText.Text);RefreshRows();Draw();completed=true;connectionToast.Update(layout.Name,"success","입력 전환 완료",2600);
         }
         catch(Exception ex){input.Emergency("전환하지 못해 PC 입력을 유지합니다.",false);blockedRoute=id;string reason=ex is OperationCanceledException?(request==Interlocked.Read(ref switchVersion)?"10초 안에 연결되지 않았습니다.":"기기 전환을 취소했습니다."):ex.Message;
             bool canceled=request!=Interlocked.Read(ref switchVersion);StatusText.Text=(canceled?"전환 취소: ":"전환 실패: ")+reason;Record(StatusText.Text);
-            if(!closing){connectionToast.Update(layout.Name,canceled?"cancel":"failure",reason+" · PC 입력 유지",5000);completed=true;}}
+            if(!closing){connectionToast.Update(layout.Name,canceled?"cancel":"failure",reason+" · PC 입력 유지",6000);completed=true;}}
         finally{input.Connecting=false;if(ReferenceEquals(switchCancellation,deadline))switchCancellation=null;if(!closing&&!completed)connectionToast.Update(layout.Name,"cancel","PC 입력 유지",2200);busy=false;PairButton.IsEnabled=client!=null;}
     }
     private async void ReturnClick(object sender,RoutedEventArgs e)

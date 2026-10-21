@@ -7,7 +7,7 @@ Unicode true
   !define APP_FILES "..\artifacts\win-x64"
 !endif
 !ifndef OUTPUT
-  !define OUTPUT "..\..\EasyBlue-Next-0.3.2-Setup.exe"
+  !define OUTPUT "..\..\EasyBlue-Next-0.3.3-Setup.exe"
 !endif
 Name "EasyBlue Next"
 OutFile "${OUTPUT}"
@@ -16,9 +16,9 @@ InstallDirRegKey HKCU "Software\EasyBlueNext" "InstallDir"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 BrandingText "EasyBlue Next"
-VIProductVersion "0.3.2.0"
+VIProductVersion "0.3.3.0"
 VIAddVersionKey "ProductName" "EasyBlue Next Setup"
-VIAddVersionKey "FileVersion" "0.3.2"
+VIAddVersionKey "FileVersion" "0.3.3"
 VIAddVersionKey "FileDescription" "EasyBlue Next per-user installer"
 !define MUI_ICON "../EasyBlue.Desktop/Assets/EasyBlue.ico"
 !define MUI_UNICON "../EasyBlue.Desktop/Assets/EasyBlue.ico"
@@ -43,9 +43,14 @@ Function .onInit
   ${EndIf}
   SetRegView 64
   SetShellVarContext current
-  StrCpy $StartChecked ${BST_UNCHECKED}
+  StrCpy $StartChecked ${BST_CHECKED}
   StrCpy $DesktopChecked ${BST_CHECKED}
+  ClearErrors
   ReadRegDWORD $0 HKCU "Software\EasyBlueNext" "StartupEnabled"
+  ${IfNot} ${Errors}
+  ${AndIf} $0 == 0
+    StrCpy $StartChecked ${BST_UNCHECKED}
+  ${EndIf}
   ${If} $0 == 1
     StrCpy $StartChecked ${BST_CHECKED}
   ${EndIf}
@@ -130,7 +135,7 @@ Section "EasyBlue Next"
   ${EndIf}
   WriteRegStr HKCU "Software\EasyBlueNext" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EasyBlueNext" "DisplayName" "EasyBlue Next"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EasyBlueNext" "DisplayVersion" "0.3.2"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EasyBlueNext" "DisplayVersion" "0.3.3"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EasyBlueNext" "Publisher" "EasyBlueNext contributors"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EasyBlueNext" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EasyBlueNext" "DisplayIcon" "$INSTDIR\EasyBlue.Desktop.exe"
@@ -178,6 +183,7 @@ Section "Uninstall"
   Delete "$INSTDIR\changes-0.3.0.md"
   Delete "$INSTDIR\changes-0.3.1.md"
   Delete "$INSTDIR\changes-0.3.2.md"
+  Delete "$INSTDIR\changes-0.3.3.md"
   Delete "$INSTDIR\changes-0.2.3.md"
   Delete "$INSTDIR\dotnet-LICENSE.txt"
   Delete "$INSTDIR\dotnet-ThirdPartyNotices.txt"

@@ -15,3 +15,5 @@ Copy-Item Notes/0.3.1-changes.md artifacts/win-x64/changes-0.3.1.md
 Copy-Item Notes/Original-settings-inventory.md artifacts/win-x64/original-settings.md
 
 Copy-Item Notes/0.3.2-changes.md artifacts/win-x64/changes-0.3.2.md
+
+Copy-Item Notes/0.3.3-changes.md artifacts/win-x64/changes-0.3.3.md

@@ -19,17 +19,17 @@ public partial class MainWindow
         updatingStartup=true;StartupBox.IsEnabled=false;StartupRepairButton.IsEnabled=false;
         try
         {
-            var work=Task.Run(()=>{
+            var work=StartupRegistration.Execute(()=>{
                 var current=StartupRegistration.Read();
                 // Migrate our Run entry once; never re-enable a task disabled outside the app.
-                if(migrate&&current.Healthy&&!current.Enabled&&StartupRegistration.LegacyEnabled()&&current.Message.StartsWith("이전"))return StartupRegistration.Enable();
+                if(migrate&&current.Healthy&&current.Enabled&&current.Message.StartsWith("이전"))return StartupRegistration.Enable();
                 return current;
             });
             startupWork=work;var status=await work;
             if(!closing)ShowStartupStatus(status);
             Record(status.Message);
         }
-        catch(Exception ex){StartupStatusText.Text="자동실행 전환 실패: "+ex.Message;Record(StartupStatusText.Text);StartupRegistration.Log(StartupStatusText.Text);}
+        catch(Exception ex){StartupStatusText.Text="자동실행 전환 실패: "+StartupRegistration.Error(ex);Record(StartupStatusText.Text);StartupRegistration.Log(StartupStatusText.Text);}
         finally{updatingStartup=false;StartupBox.IsEnabled=true;StartupRepairButton.IsEnabled=true;}
     }
     private async void StartupChanged(object sender,RoutedEventArgs e)
@@ -38,6 +38,8 @@ public partial class MainWindow
         await SetStartup(StartupBox.IsChecked==true);
     }
     private async void RepairStartup(object sender,RoutedEventArgs e)=>await SetStartup(true);
+    private void OpenWindowsStartup(object sender,RoutedEventArgs e)
+    {System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("ms-settings:startupapps"){UseShellExecute=true});}
     private async void CheckStartup(object sender,RoutedEventArgs e)=>await RefreshStartupStatus();
     private async Task SetStartup(bool enabled)
     {
@@ -45,13 +47,13 @@ public partial class MainWindow
         updatingStartup=true;StartupBox.IsEnabled=false;StartupRepairButton.IsEnabled=false;
         try
         {
-            var work=Task.Run(()=>enabled?StartupRegistration.Enable():StartupRegistration.Disable());startupWork=work;var status=await work;
+            var work=StartupRegistration.Execute(()=>enabled?StartupRegistration.Enable():StartupRegistration.Disable());startupWork=work;var status=await work;
             ShowStartupStatus(status);StatusText.Text=status.Message;Record(status.Message);
         }
         catch(Exception ex)
         {
-            ShowStartupStatus(await Task.Run(StartupRegistration.Read));
-            StatusText.Text="자동실행 설정 실패: "+ex.Message;StartupStatusText.Text=StatusText.Text;Record(StatusText.Text);StartupRegistration.Log(StatusText.Text);
+            ShowStartupStatus(await StartupRegistration.Execute(StartupRegistration.Read));
+            StatusText.Text="자동실행 설정 실패: "+StartupRegistration.Error(ex);StartupStatusText.Text=StatusText.Text;Record(StatusText.Text);StartupRegistration.Log(StatusText.Text);
         }
         finally{updatingStartup=false;StartupBox.IsEnabled=true;StartupRepairButton.IsEnabled=true;}
     }

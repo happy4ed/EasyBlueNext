@@ -6,22 +6,15 @@ static void Require(bool condition,string description)
     if(!condition)throw new Exception(description);
     Console.WriteLine("PASS "+description);
 }
-var startupXml=System.Xml.Linq.XDocument.Parse(StartupTaskDefinition.Create(Path.Combine(Path.GetTempPath(),"EasyBlue & test","EasyBlue.Desktop.exe"),"S-1-5-21-123-456-789-1001"));
-System.Xml.Linq.XNamespace startupNs="http://schemas.microsoft.com/windows/2004/02/mit/task";
-string? StartupValue(string name)=>startupXml.Descendants(startupNs+name).FirstOrDefault()?.Value;
-Require(StartupValue("Command")==Path.Combine(Path.GetTempPath(),"EasyBlue & test","EasyBlue.Desktop.exe"),"startup paths with spaces and XML characters round trip");
-Require(StartupValue("WorkingDirectory")==Path.Combine(Path.GetTempPath(),"EasyBlue & test"),"startup working directory is explicit");
-Require(StartupValue("Arguments")=="--background","startup launches in tray mode");
-Require(startupXml.Descendants(startupNs+"UserId").All(e=>e.Value=="S-1-5-21-123-456-789-1001")&&startupXml.Descendants(startupNs+"UserId").Count()==2,"startup trigger and principal are scoped to the same user");
-Require(StartupValue("LogonType")=="InteractiveToken"&&StartupValue("RunLevel")=="LeastPrivilege","startup uses interactive user without password or elevation");
-Require(StartupValue("Delay")=="PT10S","startup allows desktop initialization before launch");
-Require(startupXml.Descendants(startupNs+"LogonTrigger").Single().Elements().Select(e=>e.Name.LocalName).SequenceEqual(new[]{"Enabled","UserId","Delay"}),"startup logon trigger follows Windows schema order");
-Require(StartupValue("DisallowStartIfOnBatteries")=="false"&&StartupValue("StopIfGoingOnBatteries")=="false","startup continues on battery power");
-Require(StartupValue("RunOnlyIfIdle")=="false"&&StartupValue("RunOnlyIfNetworkAvailable")=="false","startup does not depend on idle time or network");
-Require(StartupValue("ExecutionTimeLimit")=="PT0S"&&StartupValue("AllowHardTerminate")=="false","startup does not kill the tray app after 72 hours");
-Require(StartupValue("MultipleInstancesPolicy")=="IgnoreNew","startup ignores duplicate task launches");
-Require(StartupValue("Interval")=="PT1M"&&StartupValue("Count")=="3","startup crash retries are bounded");
-if(args.Length==2&&args[0]=="--startup-xml")File.WriteAllText(args[1],startupXml.ToString());
+string shortcutExe=Path.Combine(Path.GetTempPath(),"EasyBlue 한글 & spaces","EasyBlue.Desktop.exe");
+string shortcutDirectory=Path.GetDirectoryName(shortcutExe)!;
+Require(StartupShortcutSpec.Matches(shortcutExe,shortcutExe,"--background",shortcutDirectory),"startup shortcut preserves Unicode and spaced executable paths");
+Require(StartupShortcutSpec.Matches(shortcutExe,shortcutExe.ToUpperInvariant(),"--background",shortcutDirectory),"startup shortcut compares Windows paths without case sensitivity");
+Require(StartupShortcutSpec.Matches(shortcutExe,shortcutExe,"--background",shortcutDirectory+Path.DirectorySeparatorChar),"startup shortcut accepts a trailing working-directory separator");
+Require(!StartupShortcutSpec.Matches(shortcutExe,shortcutExe,"",shortcutDirectory),"startup shortcut rejects missing tray argument");
+Require(!StartupShortcutSpec.Matches(shortcutExe,shortcutExe+".other","--background",shortcutDirectory),"startup shortcut rejects a different executable");
+Require(!StartupShortcutSpec.Matches(shortcutExe,shortcutExe,"--background",Path.GetTempPath()),"startup shortcut rejects an incorrect working directory");
+Require(!StartupShortcutSpec.Matches(shortcutExe,"","--background",shortcutDirectory),"startup shortcut rejects an empty target");
 
 Require(Enumerable.Range(32,95).All(c=>AdvancedInput.Ascii((char)c)!=null),"clipboard covers every printable US ASCII character");
 Require(AdvancedInput.Ascii('@')==(31,2)&&AdvancedInput.Ascii('0')==(39,0),"clipboard shifted number symbols preserve HID positions");
@@ -39,7 +32,6 @@ Require(AdvancedInput.SpecialCommand(17,false)==0x2c11&&AdvancedInput.SpecialCom
 var advancedPreferences=(new UserPreferences{SpecialKeyGroups=[new("custom",[17,999])],ActiveSpecialGroup=99,Clipboard=new(DelayMs:0)}).Validate();
 Require(advancedPreferences.SpecialKeyGroups.Count==4&&advancedPreferences.SpecialKeyGroups.All(g=>g.Keys.Length==12)&&advancedPreferences.SpecialKeyGroups[0].Keys[1]==null,"special group validation fills four groups and rejects unknown device codes");
 Require(advancedPreferences.ActiveSpecialGroup==3&&advancedPreferences.Clipboard.DelayMs==10,"advanced input settings bound group selection and pacing");
-Require(StartupValue("Priority")=="5","scheduled input app retains normal interactive priority");
 
 foreach(int count in new[]{1,4,5,12})
 {

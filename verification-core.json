@@ -1,19 +1,14 @@
 {
-  "method": "Executed scripted core checks; startup task XML additionally validated against Microsoft XSD; Windows COM/GUI and physical hardware unverified",
-  "passed": 182,
+  "method": "Executed scripted core checks including shortcut path/argument policy; Windows Shell Link COM/GUI and physical hardware unverified",
+  "passed": 176,
   "cases": [
-    "startup paths with spaces and XML characters round trip",
-    "startup working directory is explicit",
-    "startup launches in tray mode",
-    "startup trigger and principal are scoped to the same user",
-    "startup uses interactive user without password or elevation",
-    "startup allows desktop initialization before launch",
-    "startup logon trigger follows Windows schema order",
-    "startup continues on battery power",
-    "startup does not depend on idle time or network",
-    "startup does not kill the tray app after 72 hours",
-    "startup ignores duplicate task launches",
-    "startup crash retries are bounded",
+    "startup shortcut preserves Unicode and spaced executable paths",
+    "startup shortcut compares Windows paths without case sensitivity",
+    "startup shortcut accepts a trailing working-directory separator",
+    "startup shortcut rejects missing tray argument",
+    "startup shortcut rejects a different executable",
+    "startup shortcut rejects an incorrect working directory",
+    "startup shortcut rejects an empty target",
     "clipboard covers every printable US ASCII character",
     "clipboard shifted number symbols preserve HID positions",
     "clipboard normalizes CRLF and CR to one newline",
@@ -29,7 +24,6 @@
     "special key release acknowledgements clear the ledger",
     "special group validation fills four groups and rejects unknown device codes",
     "advanced input settings bound group selection and pacing",
-    "scheduled input app retains normal interactive priority",
     "1 words: report length",
     "1 words: report ID",
     "little endian magic",
@@ -186,5 +180,5 @@
     "original updater name capacity31 permits31 bytes without overflowing field"
   ],
   "windows_hardware_verified": false,
-  "task_scheduler_xsd": "passed"
+  "startup_method": "per-user Startup folder shortcut"
 }
