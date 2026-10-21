@@ -470,14 +470,14 @@ public partial class MainWindow : Window
         foreach(var m in monitors)
         {
             var border=Screen(m.Bounds,Color("Screen"),m.Primary?Color("Accent"):Color("Muted"));
-            var labels=new StackPanel{VerticalAlignment=VerticalAlignment.Center};labels.Children.Add(new TextBlock{Text=m.Name,FontSize=10,TextAlignment=TextAlignment.Center});labels.Children.Add(new TextBlock{Text=m.Diagonal+"인치"+(m.Primary?" · 주 모니터":""),FontSize=9,Foreground=Color("Muted"),TextAlignment=TextAlignment.Center});border.Child=labels;
+            var labels=new StackPanel{VerticalAlignment=VerticalAlignment.Center};labels.Children.Add(new TextBlock{Text=m.Name,FontSize=12,TextAlignment=TextAlignment.Center});labels.Children.Add(new TextBlock{Text=m.Diagonal+"인치"+(m.Primary?" · 주 모니터":""),FontSize=12,Foreground=Color("Muted"),TextAlignment=TextAlignment.Center});border.Child=labels;
             border.ToolTip=$"{m.Name} · {(int)m.Pixels.Width}×{(int)m.Pixels.Height} · {m.Diagonal}인치";
         }
         foreach(var l in remotes)
         {
             var a=AttachmentOf(l);var border=Screen(l.Bounds,Color("Screen"),input?.TargetId==l.Id?Color("Accent"):Color("Muted"));border.Cursor=Cursors.SizeAll;border.Tag=l.Id;border.ToolTip=l.Name+" · "+l.Diagonal+"인치";border.MouseLeftButtonDown+=DeviceDown;
             double x=l.Bounds.X*scale+originX,y=l.Bounds.Y*scale+originY;
-            Label(l.Name+" · "+l.Diagonal+"인치",x+l.Bounds.Width*scale+5,y,10,Color("Ink"),l.Id);Label(a==null?"수동":"자동",x+l.Bounds.Width*scale+5,y+14,9,a==null?Color("Muted"):Color("Accent"),l.Id);
+            Label(l.Name+" · "+l.Diagonal+"인치",x+l.Bounds.Width*scale+5,y,10,Color("Ink"),l.Id);Label(a==null?"수동":"자동",x+l.Bounds.Width*scale+5,y+18,12,a==null?Color("Muted"):Color("Accent"),l.Id);
             foreach(var contact in ContactsOf(l))
             {
                 var m=AllScreens().First(x=>x.Id==contact.MonitorId);bool vertical=contact.Edge is "Left" or "Right";
@@ -490,7 +490,7 @@ public partial class MainWindow : Window
     private Border Screen(Box box,Brush fill,Brush outline)
     {var b=new Border{Width=Math.Max(4,box.Width*scale),Height=Math.Max(4,box.Height*scale),Background=fill,BorderBrush=outline,BorderThickness=new(1.5),CornerRadius=new(3)};Canvas.SetLeft(b,box.X*scale+originX);Canvas.SetTop(b,box.Y*scale+originY);LayoutCanvas.Children.Add(b);return b;}
     private void Label(string text,double x,double y,double size,Brush color,string? deviceId=null)
-    {var t=new TextBlock{Text=text,FontSize=size,Foreground=color,IsHitTestVisible=deviceId!=null,Background=Brushes.Transparent};if(deviceId!=null){t.Tag=deviceId;t.Cursor=Cursors.SizeAll;t.MouseLeftButtonDown+=DeviceDown;}Canvas.SetLeft(t,x);Canvas.SetTop(t,y);LayoutCanvas.Children.Add(t);}
+    {var t=new TextBlock{Text=text,FontSize=Math.Max(12,size),Foreground=color,IsHitTestVisible=deviceId!=null,Background=Brushes.Transparent};if(deviceId!=null){t.Tag=deviceId;t.Cursor=Cursors.SizeAll;t.MouseLeftButtonDown+=DeviceDown;}Canvas.SetLeft(t,x);Canvas.SetTop(t,y);LayoutCanvas.Children.Add(t);}
     private void DeviceDown(object sender,MouseButtonEventArgs e)
     {if(input?.Active==true||busy)return;dragging=(string)((FrameworkElement)sender).Tag;dragOriginal=preferences.Devices.First(x=>x.Id==dragging);dragStart=e.GetPosition(LayoutCanvas);LayoutCanvas.CaptureMouse();e.Handled=true;dwell.Reset();}
     private void CanvasMove(object sender,MouseEventArgs e)
