@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+artifacts/
+*.zip
+*-Setup.exe
+*.user
+.vs/
+Backups/
+preferences.json
