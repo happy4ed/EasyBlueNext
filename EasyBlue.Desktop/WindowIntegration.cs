@@ -113,11 +113,10 @@ public partial class MainWindow
             // Reserve this click before waiting so the next status poll cannot steal it.
             if(polling&&pollFinished is { } pending)await pending.Task;
             if(!closing&&!pairing&&!pairStopping&&!pairRequestQueued)await Switch(id);
-            if(input?.Active!=true&&tray!=null&&!closing)
-                tray.ShowBalloonTip(4000,"EasyBlue",StatusText.Text,System.Windows.Forms.ToolTipIcon.Info);
         }
         finally{traySwitchQueued=false;}
     }
+    internal void QuitForUpdate(){exitRequested=true;Close();}
     internal void ShowFromTray(){Show();WindowState=WindowState.Normal;Activate();}
     private void HideToTray()
     {HideCountdown();if(tray==null){WindowState=WindowState.Normal;return;}if(input!=null){input.EditingShortcut=false;input.Emergency("창을 트레이로 보내고 PC 입력으로 복귀했습니다.",false);}Hide();}

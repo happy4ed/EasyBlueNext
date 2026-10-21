@@ -69,13 +69,13 @@ internal sealed class HidTransport : IReportExchange, IDisposable
         {
             if(Volatile.Read(ref failed)!=0)throw new IOException("통신이 중단되었습니다.");
             bool management=frame.Length<=33&&DeviceProtocol.Word(frame.AsSpan(1),1)!=0;
-            if(management)Trace($"{(DeviceProtocol.Word(frame.AsSpan(1),1)==0xffff?"상태 조회":"관리 명령")} TX report={frame[0]} bytes={frame.Length} header={Convert.ToHexString(frame.AsSpan(1,8))}");
+            if(management&&Diagnostic!=null)Trace($"{(DeviceProtocol.Word(frame.AsSpan(1),1)==0xffff?"상태 조회":"관리 명령")} TX report={frame[0]} bytes={frame.Length} header={Convert.ToHexString(frame.AsSpan(1,8))}");
             await Task.Run(()=>{if(!HidD_SetFeature(handle,frame,frame.Length))throw new Win32Exception(Marshal.GetLastWin32Error());});
             using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(2));
             byte[] response=new byte[inputLength];
             int length=await stream.ReadAsync(response,timeout.Token);
             bool rawConfiguration=management&&DeviceProtocol.Word(frame.AsSpan(1),1)==0x8000&&DeviceProtocol.Word(frame.AsSpan(1),0) is 0xeb02 or 0xeb04;
-            if(management)Trace($"{(DeviceProtocol.Word(frame.AsSpan(1),1)==0xffff?"상태 조회":"관리 명령")} RX report={(length>0?response[0]:0)} bytes={length} header={(rawConfiguration?"configuration payload omitted":length>=9?Convert.ToHexString(response.AsSpan(1,8)):"short")}");
+            if(management&&Diagnostic!=null)Trace($"{(DeviceProtocol.Word(frame.AsSpan(1),1)==0xffff?"상태 조회":"관리 명령")} RX report={(length>0?response[0]:0)} bytes={length} header={(rawConfiguration?"configuration payload omitted":length>=9?Convert.ToHexString(response.AsSpan(1,8)):"short")}");
             return DeviceProtocol.Payload(response.AsSpan(0,length));
         }
         finally {gate.Release();}

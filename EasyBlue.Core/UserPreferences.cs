@@ -2,6 +2,10 @@ using System.Text.Json;
 namespace EasyBlue.Core;
 public sealed record UserPreferences(double FontSize=13, string Theme="System", bool AutoSwitch=false, double DwellSeconds=0.5, bool AvoidDrag=true, int Version=2, double MouseSpeed=1, bool KoreanCtrlSpace=true)
 {
+    public bool SpecialKeysEnabled {get;init;}
+    public int ActiveSpecialGroup {get;init;}
+    public List<SpecialKeyGroup> SpecialKeyGroups {get;init;}=Enumerable.Range(1,4).Select(i=>new SpecialKeyGroup("그룹 "+i,new int?[12])).ToList();
+    public ClipboardOptions Clipboard {get;init;}=new();
     public bool LedEnabled {get;init;}=true;
     public bool MouseAcceleration {get;init;}=false;
     public double WheelSpeed {get;init;}=1;
@@ -16,6 +20,9 @@ public sealed record UserPreferences(double FontSize=13, string Theme="System", 
         var returning=ShortcutBinding.IsAllowed(ReturnShortcut)?ReturnShortcut:new(0x7b,3);
         var last=ShortcutBinding.IsAllowed(LastDeviceShortcut)?LastDeviceShortcut:new(0x7a,3);
         return this with {
+        Clipboard=(Clipboard??new()).Validate(),
+        ActiveSpecialGroup=Math.Clamp(ActiveSpecialGroup,0,3),
+        SpecialKeyGroups=Enumerable.Range(0,4).Select(i=>{var g=SpecialKeyGroups?.ElementAtOrDefault(i);return new SpecialKeyGroup(string.IsNullOrWhiteSpace(g?.Name)?"그룹 "+(i+1):g.Name[..Math.Min(32,g.Name.Length)],AdvancedInput.ValidKeys(g?.Keys));}).ToList(),
         DeviceShortcuts=(DeviceShortcuts??[]).Where(x=>ShortcutBinding.IsAllowed(x.Value)&&x.Value!=returning&&x.Value!=last).DistinctBy(x=>x.Value).ToDictionary(x=>x.Key,x=>x.Value),
         ReturnShortcut=returning,
         LastDeviceShortcut=last,

@@ -7,7 +7,7 @@ Unicode true
   !define APP_FILES "..\artifacts\win-x64"
 !endif
 !ifndef OUTPUT
-  !define OUTPUT "..\..\EasyBlue-Next-0.3.1-Setup.exe"
+  !define OUTPUT "..\..\EasyBlue-Next-0.3.2-Setup.exe"
 !endif
 Name "EasyBlue Next"
 OutFile "${OUTPUT}"
@@ -16,9 +16,9 @@ InstallDirRegKey HKCU "Software\EasyBlueNext" "InstallDir"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 BrandingText "EasyBlue Next"
-VIProductVersion "0.3.1.0"
+VIProductVersion "0.3.2.0"
 VIAddVersionKey "ProductName" "EasyBlue Next Setup"
-VIAddVersionKey "FileVersion" "0.3.1"
+VIAddVersionKey "FileVersion" "0.3.2"
 VIAddVersionKey "FileDescription" "EasyBlue Next per-user installer"
 !define MUI_ICON "../EasyBlue.Desktop/Assets/EasyBlue.ico"
 !define MUI_UNICON "../EasyBlue.Desktop/Assets/EasyBlue.ico"
@@ -45,6 +45,10 @@ Function .onInit
   SetShellVarContext current
   StrCpy $StartChecked ${BST_UNCHECKED}
   StrCpy $DesktopChecked ${BST_CHECKED}
+  ReadRegDWORD $0 HKCU "Software\EasyBlueNext" "StartupEnabled"
+  ${If} $0 == 1
+    StrCpy $StartChecked ${BST_CHECKED}
+  ${EndIf}
   ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "EasyBlueNext"
   ${If} $0 != ""
     StrCpy $StartChecked ${BST_CHECKED}
@@ -52,12 +56,28 @@ Function .onInit
 FunctionEnd
 Function CheckRunning
   retry:
+  nsExec::ExecToStack '"$PLUGINSDIR\stage\EasyBlue.Desktop.exe" --quit-existing "$INSTDIR\EasyBlue.Desktop.exe"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 3
+    MessageBox MB_OKCANCEL|MB_ICONINFORMATION "이전 버전에는 업데이트 종료 기능이 없습니다. 동글 이름 저장 등 진행 중인 작업을 마친 뒤 확인을 누르면 이전 앱을 종료하고 업데이트합니다." IDCANCEL cancel
+    nsExec::ExecToStack '"$PLUGINSDIR\stage\EasyBlue.Desktop.exe" --quit-existing "$INSTDIR\EasyBlue.Desktop.exe" --force-legacy'
+    Pop $0
+    Pop $1
+  ${EndIf}
+  ${If} $0 != 0
+    MessageBox MB_RETRYCANCEL|MB_ICONINFORMATION "앱 종료를 기다리고 있습니다. 진행 중인 장치 작업이 끝난 뒤 다시 시도해 주세요." IDRETRY retry
+    Goto cancel
+  ${EndIf}
   System::Call 'kernel32::OpenMutexW(i 0x100000, i 0, t "Local\EasyBlueNext.DeviceOwner") p.r0'
   ${If} $0 P<> 0
     System::Call 'kernel32::CloseHandle(p r0)'
-    MessageBox MB_RETRYCANCEL|MB_ICONINFORMATION "EasyBlue Next가 실행 중입니다. 트레이 메뉴에서 종료한 뒤 다시 시도를 눌러 주세요." IDRETRY retry
-    Abort
+    MessageBox MB_RETRYCANCEL|MB_ICONINFORMATION "다른 폴더의 EasyBlue Next가 실행 중입니다. 해당 앱을 종료한 뒤 다시 시도해 주세요." IDRETRY retry
+    Goto cancel
   ${EndIf}
+  Return
+  cancel:
+  Abort
 FunctionEnd
 Function OptionsPage
   nsDialogs::Create 1018
@@ -77,13 +97,20 @@ Function OptionsLeave
   ${NSD_GetState} $DesktopBox $DesktopChecked
 FunctionEnd
 Section "EasyBlue Next"
-  Call CheckRunning
-  SetOutPath "$INSTDIR"
+  InitPluginsDir
+  SetOutPath "$PLUGINSDIR\stage"
   File "${APP_FILES}/*.exe"
   File "${APP_FILES}/*.dll"
   File "${APP_FILES}/*.txt"
   File "${APP_FILES}/*.json"
   File "${APP_FILES}/*.md"
+  Call CheckRunning
+  SetOutPath "$INSTDIR"
+  ClearErrors
+  CopyFiles /SILENT "$PLUGINSDIR\stage\*.*" "$INSTDIR"
+  IfErrors 0 +3
+    MessageBox MB_ICONSTOP "앱 파일을 복사하지 못했습니다. 앱 종료 상태와 설치 폴더 권한을 확인해 주세요."
+    Abort
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateDirectory "$SMPROGRAMS\EasyBlue Next"
   CreateShortCut "$SMPROGRAMS\EasyBlue Next\EasyBlue Next.lnk" "$INSTDIR\EasyBlue.Desktop.exe"
@@ -92,13 +119,18 @@ Section "EasyBlue Next"
     CreateShortCut "$DESKTOP\EasyBlue Next.lnk" "$INSTDIR\EasyBlue.Desktop.exe"
   ${EndIf}
   ${If} $StartChecked == ${BST_CHECKED}
-    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "EasyBlueNext" '$\"$INSTDIR\EasyBlue.Desktop.exe$\" --background'
+    nsExec::ExecToStack '"$INSTDIR\EasyBlue.Desktop.exe" --startup-enable'
   ${Else}
-    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "EasyBlueNext"
+    nsExec::ExecToStack '"$INSTDIR\EasyBlue.Desktop.exe" --startup-disable'
+  ${EndIf}
+  Pop $0
+  Pop $1
+  ${If} $0 != 0
+    MessageBox MB_ICONEXCLAMATION "자동실행 설정을 완료하지 못했습니다. 앱의 일반 설정에서 자동실행 등록·복구를 눌러 주세요."
   ${EndIf}
   WriteRegStr HKCU "Software\EasyBlueNext" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EasyBlueNext" "DisplayName" "EasyBlue Next"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EasyBlueNext" "DisplayVersion" "0.3.1"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EasyBlueNext" "DisplayVersion" "0.3.2"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EasyBlueNext" "Publisher" "EasyBlueNext contributors"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EasyBlueNext" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EasyBlueNext" "DisplayIcon" "$INSTDIR\EasyBlue.Desktop.exe"
@@ -115,6 +147,13 @@ Section "Uninstall"
   ${If} $0 P<> 0
     System::Call 'kernel32::CloseHandle(p r0)'
     MessageBox MB_ICONINFORMATION "트레이 메뉴에서 EasyBlue Next를 종료한 뒤 제거해 주세요."
+    Abort
+  ${EndIf}
+  nsExec::ExecToStack '"$INSTDIR\EasyBlue.Desktop.exe" --startup-disable'
+  Pop $0
+  Pop $1
+  ${If} $0 != 0
+    MessageBox MB_ICONEXCLAMATION "자동실행 해제에 실패했습니다. 앱의 일반 설정에서 자동실행을 해제한 뒤 제거해 주세요."
     Abort
   ${EndIf}
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "EasyBlueNext"
@@ -138,6 +177,7 @@ Section "Uninstall"
   Delete "$INSTDIR\original-settings.md"
   Delete "$INSTDIR\changes-0.3.0.md"
   Delete "$INSTDIR\changes-0.3.1.md"
+  Delete "$INSTDIR\changes-0.3.2.md"
   Delete "$INSTDIR\changes-0.2.3.md"
   Delete "$INSTDIR\dotnet-LICENSE.txt"
   Delete "$INSTDIR\dotnet-ThirdPartyNotices.txt"

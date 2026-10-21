@@ -2,24 +2,58 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
-using Microsoft.Win32;
 namespace EasyBlue.Desktop;
 public partial class MainWindow
 {
     private TaskCompletionSource? storageFinished;
-    private const string RunKey=@"Software\Microsoft\Windows\CurrentVersion\Run";
-    private bool ReadsStartup(){using var key=Registry.CurrentUser.OpenSubKey(RunKey);return key?.GetValue("EasyBlueNext") is string;}
-    private void StartupChanged(object sender,RoutedEventArgs e)
+    private bool updatingStartup;
+    private Task? startupWork;
+    private void ShowStartupStatus(StartupStatus status)
     {
-        if(!ready)return;
+        StartupBox.IsChecked=status.Enabled;
+        StartupStatusText.Text=status.Message;
+    }
+    private async Task RefreshStartupStatus(bool migrate=false)
+    {
+        if(updatingStartup)return;
+        updatingStartup=true;StartupBox.IsEnabled=false;StartupRepairButton.IsEnabled=false;
         try
         {
-            using var key=Registry.CurrentUser.CreateSubKey(RunKey);
-            if(StartupBox.IsChecked==true){string path=Environment.ProcessPath??throw new IOException("앱 실행 경로를 찾지 못했습니다.");key.SetValue("EasyBlueNext","\""+path+"\" --background");}
-            else key.DeleteValue("EasyBlueNext",false);
-            StatusText.Text="Windows 시작 시 실행 설정을 저장했습니다.";
+            var work=Task.Run(()=>{
+                var current=StartupRegistration.Read();
+                // Migrate our Run entry once; never re-enable a task disabled outside the app.
+                if(migrate&&current.Healthy&&!current.Enabled&&StartupRegistration.LegacyEnabled()&&current.Message.StartsWith("이전"))return StartupRegistration.Enable();
+                return current;
+            });
+            startupWork=work;var status=await work;
+            if(!closing)ShowStartupStatus(status);
+            Record(status.Message);
         }
-        catch(Exception ex){StartupBox.IsChecked=ReadsStartup();Record("시작 설정 실패: "+ex.Message);}
+        catch(Exception ex){StartupStatusText.Text="자동실행 전환 실패: "+ex.Message;Record(StartupStatusText.Text);StartupRegistration.Log(StartupStatusText.Text);}
+        finally{updatingStartup=false;StartupBox.IsEnabled=true;StartupRepairButton.IsEnabled=true;}
+    }
+    private async void StartupChanged(object sender,RoutedEventArgs e)
+    {
+        if(!ready||updatingStartup)return;
+        await SetStartup(StartupBox.IsChecked==true);
+    }
+    private async void RepairStartup(object sender,RoutedEventArgs e)=>await SetStartup(true);
+    private async void CheckStartup(object sender,RoutedEventArgs e)=>await RefreshStartupStatus();
+    private async Task SetStartup(bool enabled)
+    {
+        if(updatingStartup)return;
+        updatingStartup=true;StartupBox.IsEnabled=false;StartupRepairButton.IsEnabled=false;
+        try
+        {
+            var work=Task.Run(()=>enabled?StartupRegistration.Enable():StartupRegistration.Disable());startupWork=work;var status=await work;
+            ShowStartupStatus(status);StatusText.Text=status.Message;Record(status.Message);
+        }
+        catch(Exception ex)
+        {
+            ShowStartupStatus(await Task.Run(StartupRegistration.Read));
+            StatusText.Text="자동실행 설정 실패: "+ex.Message;StartupStatusText.Text=StatusText.Text;Record(StatusText.Text);StartupRegistration.Log(StatusText.Text);
+        }
+        finally{updatingStartup=false;StartupBox.IsEnabled=true;StartupRepairButton.IsEnabled=true;}
     }
     private async void LedChanged(object sender,RoutedEventArgs e)
     {

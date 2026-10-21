@@ -31,6 +31,9 @@ public partial class MainWindow : Window
     private Task pairStopTask=Task.CompletedTask;
     private string? lastAutoCandidate;
     private EdgeCountdown? edgeCountdown;
+    private ConnectionToast? connectionToast;
+    private CancellationTokenSource? switchCancellation;
+    private void CancelSwitch(){Interlocked.Increment(ref switchVersion);try{switchCancellation?.Cancel();}catch(ObjectDisposedException){ }}
     private void HideCountdown(){if(edgeCountdown?.IsVisible==true)edgeCountdown.Hide();}
     private void ShowCountdown(string target,Attachment? route,double axis)
     {
@@ -56,7 +59,8 @@ public partial class MainWindow : Window
         int routes=VisibleLayouts().Count(x=>ContactsOf(x).Any());
         AutoStatus.Text=!preferences.AutoSwitch?"자동 전환 꺼짐":client==null?"자동 전환 대기 · USB 연결을 확인하세요":pairFailurePaused?"오류 후 일시 중지 · 자동 전환을 껐다 켜거나 새로고침하세요":routes==0?"자동 전환 경로 없음 · 기기를 모니터에 붙여 파란 경계를 만드세요":$"자동 전환 켜짐 · 연결 경로 {routes}개 · 파란 경계에서 {preferences.DwellSeconds:0.0}초 대기";
     }
-    private long nextPoll,switchVersion;
+    private long nextPoll,switchVersion,nextDeviceScan;
+    private bool allowDeviceRecovery=true;
     private string? blockedRoute,lastTarget;
     private string? dragging;
     private RemoteLayout? dragOriginal;
@@ -79,7 +83,7 @@ public partial class MainWindow : Window
         MinWidth=Math.Min(MinWidth,Math.Max(360,work.Width-24));Width=Math.Min(Width,Math.Max(MinWidth,work.Width-24));
         FontSize=preferences.FontSize;ThemeManager.Apply(preferences.Theme);
         SystemTheme.IsChecked=preferences.Theme=="System";LightTheme.IsChecked=preferences.Theme=="Light";DarkTheme.IsChecked=preferences.Theme=="Dark";
-        LedBox.IsChecked=preferences.LedEnabled;StartupBox.IsChecked=ReadsStartup();
+        LedBox.IsChecked=preferences.LedEnabled;StartupBox.IsEnabled=false;
         AccelerationBox.IsChecked=preferences.MouseAcceleration;WheelSlider.Value=preferences.WheelSpeed;
         SpeedSlider.Value=preferences.MouseSpeed;KoreanBox.IsChecked=preferences.KoreanCtrlSpace;
         AutoToggle.IsChecked=preferences.AutoSwitch;AvoidDragBox.IsChecked=preferences.AvoidDrag;DwellBox.Text=preferences.DwellSeconds.ToString("0.0",CultureInfo.InvariantCulture);
@@ -100,14 +104,14 @@ public partial class MainWindow : Window
     private async void OnLoaded(object sender,RoutedEventArgs e)
     {
         Record("EasyBlue Next "+System.Reflection.Assembly.GetExecutingAssembly().GetName().Version+" · 제어 세션 초기화 적용");
-        RefreshMonitors();input=new InputEngine();ApplyShortcuts();InitializeTray();
+        RefreshMonitors();input=new InputEngine();ApplyShortcuts();ApplyAdvancedInput();input.PasteRequested+=()=>Dispatcher.BeginInvoke(ClipboardRequested);InitializeTray();
         lastTarget=preferences.LastDeviceId;
         input.LastDeviceRequested+=()=>Dispatcher.BeginInvoke(async()=>{if(lastTarget!=null&&paired.Any(d=>d.Id==lastTarget))await Switch(lastTarget);else StatusText.Text="마지막으로 연결한 기기가 없습니다. 기기 목록에서 먼저 전환해 주세요.";});
         input.Released+=reason=>Dispatcher.BeginInvoke(()=>{blockedRoute=lastTarget;dwell.Reset();StatusText.Text=reason;Record(reason);});
         input.DeviceRequested+=id=>Dispatcher.BeginInvoke(async()=>await Switch(id));
-        input.ReturnRequested+=()=>Interlocked.Increment(ref switchVersion);
+        input.ReturnRequested+=CancelSwitch;
         if(App.StartInBackground)HideToTray();
-        timer.Start();await Scan();
+        timer.Start();var startup=RefreshStartupStatus(migrate:true);await Scan();await startup;
     }
     private void RefreshMonitors()
     {try{monitors=MonitorDiscovery.Find(preferences.MonitorSizes);Draw();}catch(Exception ex){Record(ex.Message);}}
@@ -134,8 +138,8 @@ public partial class MainWindow : Window
     }
     private void Save(){try{preferences.Save(PreferencesPath);}catch(Exception ex)when(ex is IOException or UnauthorizedAccessException){Record("설정 저장 실패: "+ex.Message);}}
     private void Record(string text)
-    {log.Add($"{DateTime.Now:HH:mm:ss} {text}");if(log.Count>150)log.RemoveAt(0);if(DiagnosticText!=null)DiagnosticText.Text=string.Join("\n",log);}
-    private async void ScanClick(object sender,RoutedEventArgs e)=>await Scan();
+    {if(!diagnosticsEnabled)return;log.Add($"{DateTime.Now:HH:mm:ss} {text}");if(log.Count>500)log.RemoveAt(0);if(DiagnosticText!=null)DiagnosticText.Text=string.Join("\n",log);}
+    private async void ScanClick(object sender,RoutedEventArgs e){allowDeviceRecovery=true;await Scan();}
     private async Task Scan()
     {
         if(busy||pairing||pairStopping)return;pairFailurePaused=false;busy=true;ScanButton.IsEnabled=false;PairButton.IsEnabled=false;
@@ -147,7 +151,7 @@ public partial class MainWindow : Window
             transport?.Dispose();transport=null;client=null;paired=[];RefreshRows();
             var legacy=Process.GetProcessesByName("EBTiny");
             bool legacyRunning=legacy.Length>0;foreach(var process in legacy)process.Dispose();
-            if(legacyRunning){input?.Emergency("기존 앱으로 입력 제어를 넘깁니다.",true);UsbLabel.Text="○ 기존 앱 실행 중";StatusText.Text="기존 EBTiny.exe를 종료한 뒤 새로고침해 주세요.";Record(StatusText.Text);return;}
+            if(legacyRunning){allowDeviceRecovery=false;input?.Emergency("기존 앱으로 입력 제어를 넘깁니다.",true);UsbLabel.Text="○ 기존 앱 실행 중";StatusText.Text="기존 EBTiny.exe를 종료한 뒤 새로고침해 주세요.";Record(StatusText.Text);return;}
             var found=await Task.Run(HidDiscovery.Find);Record($"USB 인터페이스 {found.Count}개 발견");
             Exception? lastError=null;
             foreach(var candidate in found)
@@ -156,9 +160,9 @@ public partial class MainWindow : Window
                 try
                 {
                     connection=await Task.Run(()=>new HidTransport(candidate.Path));
-                    connection.Diagnostic=text=>Dispatcher.BeginInvoke(()=>Record(text));
+                    connection.Diagnostic=diagnosticsEnabled?CaptureDiagnostic:null;
                     var device=new DeviceClient(connection){LedEnabled=preferences.LedEnabled};
-                    device.Diagnostic=text=>Dispatcher.BeginInvoke(()=>Record(text));
+                    device.Diagnostic=diagnosticsEnabled?CaptureDiagnostic:null;
                     await device.Initialize();
                     var rows=await device.Devices();
                     try{await device.UpdateLed(preferences.LedEnabled);}catch(DeviceCommandRejectedException ex){Record("LED 초기 설정 거부: "+ex.Message);}
@@ -175,7 +179,7 @@ public partial class MainWindow : Window
             EnsureLayouts();RefreshRows();Draw();
         }
         catch(Exception ex){Record(ex.Message);StatusText.Text="장치 검색 실패: "+ex.Message;}
-        finally{busy=false;ScanButton.IsEnabled=true;PairButton.IsEnabled=client!=null;nextPoll=Environment.TickCount64+2500;}
+        finally{busy=false;ScanButton.IsEnabled=true;PairButton.IsEnabled=client!=null;nextPoll=Environment.TickCount64+2500;nextDeviceScan=Environment.TickCount64+10000;}
     }
     private void EnsureLayouts()
     {
@@ -206,14 +210,16 @@ public partial class MainWindow : Window
         if(busy||pairing||pairStopping||client==null||input==null)return;
         var device=paired.FirstOrDefault(x=>x.Id==id);var layout=preferences.Devices.FirstOrDefault(x=>x.Id==id);
         if(device==null||layout==null)return;
-        busy=true;PairButton.IsEnabled=false;
+        busy=true;input.Connecting=true;PairButton.IsEnabled=false;
         long request=Interlocked.Increment(ref switchVersion);
+        using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(10));switchCancellation=deadline;
+        HideCountdown();connectionToast??=new ConnectionToast();connectionToast.Update(layout.Name,"pending","Bluetooth 연결 확인 중 · 최대 10초");
+        bool completed=false;
         try
         {
-            await input.Stop();StatusText.Text=layout.Name+"에 연결 중…";
-            if(!device.Connected)await client.Connect(device.Address,paired.Any(d=>d.Connected));
+            await input.Stop().WaitAsync(deadline.Token);StatusText.Text=layout.Name+"에 연결 중…";
+            if(!device.Connected)await client.Connect(device.Address,paired.Any(d=>d.Connected),deadline.Token);
             bool connected=false;
-            using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(8));
             while(!deadline.IsCancellationRequested)
             {
                 if(closing||request!=Interlocked.Read(ref switchVersion))return;
@@ -221,7 +227,7 @@ public partial class MainWindow : Window
                 if(paired.Any(x=>x.Id==id&&x.Connected)){connected=true;break;}
                 await Task.Delay(250,deadline.Token);
             }
-            if(!connected)throw new IOException("선택한 기기의 연결이 확인되지 않았습니다.");
+            if(!connected)throw new TimeoutException("10초 안에 연결되지 않았습니다.");
             InputEngine.GetCursorPos(out var point);var monitor=monitors.FirstOrDefault(x=>x.Pixels.Contains(point.X,point.Y))??monitors.First();
             double ex=0.5,ey=0.5;
             if(entry!=null)
@@ -230,20 +236,23 @@ public partial class MainWindow : Window
                 else{ey=entry.Edge=="Bottom"?12d/layout.PixelHeight:1-12d/layout.PixelHeight;ex=(axis-layout.Bounds.X)/layout.Bounds.Width;}
             }
             if(closing||request!=Interlocked.Read(ref switchVersion))return;
-            await input.AttachClient(client);
-            await client.BeginInput();
+            await input.AttachClient(client).WaitAsync(deadline.Token);
+            await client.BeginInput(deadline.Token);
             if(closing||request!=Interlocked.Read(ref switchVersion))return;
             input.Speed=SpeedSlider.Value;input.Acceleration=preferences.MouseAcceleration;input.WheelSpeed=preferences.WheelSpeed;input.KoreanCtrlSpace=preferences.KoreanCtrlSpace;input.Activate(client,id,layout.PixelWidth,layout.PixelHeight,monitor.Pixels,ex,ey);
-            pairFailurePaused=false;lastTarget=id;preferences=preferences with{LastDeviceId=id};Save();dwell.Reset();StatusText.Text=layout.Name+"로 입력 중 · "+ShortcutText(preferences.ReturnShortcut)+"로 PC 복귀";Record(StatusText.Text);RefreshRows();Draw();
+            pairFailurePaused=false;lastTarget=id;preferences=preferences with{LastDeviceId=id};Save();dwell.Reset();StatusText.Text=layout.Name+"로 입력 중 · "+ShortcutText(preferences.ReturnShortcut)+"로 PC 복귀";Record(StatusText.Text);RefreshRows();Draw();completed=true;connectionToast.Update(layout.Name,"success","입력 전환 완료",1800);
         }
-        catch(Exception ex){input.Emergency("전환하지 못해 PC 입력을 유지합니다.",false);blockedRoute=id;StatusText.Text="전환 실패: "+ex.Message;Record(StatusText.Text);}
-        finally{busy=false;PairButton.IsEnabled=client!=null;}
+        catch(Exception ex){input.Emergency("전환하지 못해 PC 입력을 유지합니다.",false);blockedRoute=id;string reason=ex is OperationCanceledException?(request==Interlocked.Read(ref switchVersion)?"10초 안에 연결되지 않았습니다.":"기기 전환을 취소했습니다."):ex.Message;
+            bool canceled=request!=Interlocked.Read(ref switchVersion);StatusText.Text=(canceled?"전환 취소: ":"전환 실패: ")+reason;Record(StatusText.Text);
+            if(!closing){connectionToast.Update(layout.Name,canceled?"cancel":"failure",reason+" · PC 입력 유지",5000);completed=true;}}
+        finally{input.Connecting=false;if(ReferenceEquals(switchCancellation,deadline))switchCancellation=null;if(!closing&&!completed)connectionToast.Update(layout.Name,"cancel","PC 입력 유지",2200);busy=false;PairButton.IsEnabled=client!=null;}
     }
     private async void ReturnClick(object sender,RoutedEventArgs e)
-    {Interlocked.Increment(ref switchVersion);if(input?.Active==true)await input.Stop();blockedRoute=lastTarget;dwell.Reset();StatusText.Text="PC 입력으로 복귀했습니다.";Draw();}
+    {CancelSwitch();if(input?.Active==true)await input.Stop();blockedRoute=lastTarget;dwell.Reset();StatusText.Text="PC 입력으로 복귀했습니다.";Draw();}
     private async void Tick(object? sender,EventArgs e)
     {
         if(closing||input==null){HideCountdown();return;}input.Pulse();
+        if(client==null&&allowDeviceRecovery&&!busy&&!pairing&&!pairStopping&&!pairRequestQueued&&!traySwitchQueued&&!pairFailurePaused&&pairWindow==null&&Environment.TickCount64>=nextDeviceScan){nextDeviceScan=Environment.TickCount64+10000;await Scan();if(closing)return;}
         if(previousCapture!=input.Active){previousCapture=input.Active;Draw();}
         if(input.Active)input.Speed=SpeedSlider.Value;
         if(!pairFailurePaused&&!busy&&client!=null&&!input.Active&&Environment.TickCount64>=nextPoll){nextPoll=Environment.TickCount64+2500;await Poll();}
@@ -472,16 +481,16 @@ public partial class MainWindow : Window
     {
         var d=new OpenFileDialog{Title="기존 EBTiny.exe 선택",Filter="EasyBlue 실행파일|EBTiny.exe"};if(d.ShowDialog(this)!=true)return;
         if(input!=null){await input.Stop();input.Emergency("기존 앱으로 전환",true);}if(client!=null)try{await client.CloseSession();}catch(Exception ex){Record("세션 종료: "+ex.Message);}
-        transport?.Dispose();transport=null;client=null;PairButton.IsEnabled=false;UsbLabel.Text="○ 기존 앱으로 전환";
+        allowDeviceRecovery=false;transport?.Dispose();transport=null;client=null;PairButton.IsEnabled=false;UsbLabel.Text="○ 기존 앱으로 전환";
         try{Process.Start(new ProcessStartInfo(d.FileName){UseShellExecute=true,WorkingDirectory=System.IO.Path.GetDirectoryName(d.FileName)!});}catch(Exception ex){MessageBox.Show(this,ex.Message,"기존 앱 실행 실패");}
     }
     private async void OnClosing(object? sender,System.ComponentModel.CancelEventArgs e)
     {
         if(shutdownComplete)return;
-        e.Cancel=true;if(!exitRequested){pairGeneration++;Interlocked.Increment(ref switchVersion);pairWindow?.Close();HideToTray();return;}if(closing)return;closing=true;pairGeneration++;Interlocked.Increment(ref switchVersion);
+        e.Cancel=true;if(!exitRequested){pairGeneration++;Interlocked.Increment(ref switchVersion);pairWindow?.Close();HideToTray();return;}if(closing)return;closing=true;pairGeneration++;CancelSwitch();
         Hide();if(tray!=null)tray.Visible=false;
-        edgeCountdown?.Close();timer.Stop();SystemEvents.UserPreferenceChanged-=SystemPreferenceChanged;SystemEvents.DisplaySettingsChanged-=DisplaysChanged;pairWindow?.Close();
-        try{if(storageFinished!=null)await storageFinished.Task;using var stop=new CancellationTokenSource(TimeSpan.FromSeconds(3));if(input!=null)await input.Stop().WaitAsync(stop.Token);if(client!=null)await client.CloseSession(stop.Token);}catch{ }
+        edgeCountdown?.Close();connectionToast?.Close();timer.Stop();SystemEvents.UserPreferenceChanged-=SystemPreferenceChanged;SystemEvents.DisplaySettingsChanged-=DisplaysChanged;pairWindow?.Close();
+        try{if(startupWork!=null)try{await startupWork;}catch{ }if(storageFinished!=null)await storageFinished.Task;using var stop=new CancellationTokenSource(TimeSpan.FromSeconds(3));if(input!=null)await input.Stop().WaitAsync(stop.Token);if(client!=null)await client.CloseSession(stop.Token);}catch{ }
         finally{tray?.Dispose();input?.Dispose();transport?.Dispose();Save();shutdownComplete=true;Close();}
     }
 }

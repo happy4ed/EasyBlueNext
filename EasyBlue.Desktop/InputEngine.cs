@@ -1,3 +1,4 @@
+using System.IO;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading.Channels;
@@ -20,7 +21,7 @@ internal sealed class InputEngine : IDisposable
     [DllImport("kernel32.dll",CharSet=CharSet.Unicode)]private static extern nint GetModuleHandleW(string? name);
     private readonly HookProc mouseCallback,keyCallback;
     private nint mouseHook,keyHook;
-    private readonly Channel<(long Epoch,ushort[] Words)> commands=Channel.CreateBounded<(long,ushort[])>(new BoundedChannelOptions(128){FullMode=BoundedChannelFullMode.Wait,SingleReader=true});
+    private readonly Channel<(long Epoch,ushort[] Words,TaskCompletionSource<bool>? Completion)> commands=Channel.CreateBounded<(long,ushort[],TaskCompletionSource<bool>?)>(new BoundedChannelOptions(128){FullMode=BoundedChannelFullMode.Wait,SingleReader=true});
     private readonly CancellationTokenSource lifetime=new();
     private readonly HashSet<uint> physicalKeys=[];
     private readonly KeyReleaseLedger held=new();
@@ -54,6 +55,45 @@ internal sealed class InputEngine : IDisposable
     public ShortcutBinding ReturnShortcut {get;set;}=new(0x7b,3);
     public ShortcutBinding LastDeviceShortcut {get;set;}=new(0x7a,3);
     public bool EditingShortcut {get;set;}
+    public bool Connecting {get;set;}
+    public IReadOnlyList<int?> SpecialKeyMap {get;set;}=new int?[12];
+    public bool ClipboardCtrlV {get;set;}
+    public bool ScriptRunning {get;private set;}
+    public event Action? PasteRequested;
+    private readonly Dictionary<uint,int> specialHeld=[];
+    public async Task RunScript(IReadOnlyList<InputStep> steps,CancellationToken cancellationToken=default)
+    {
+        if(!active||ScriptRunning)throw new InvalidOperationException("기기로 입력 전환 후 다시 시도하세요.");
+        ScriptRunning=true;long generation=Interlocked.Read(ref epoch);
+        using var cancellation=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,lifetime.Token);
+        async Task Send(ushort[] words)
+        {
+            if(!active||generation!=Interlocked.Read(ref epoch))throw new OperationCanceledException("PC 복귀로 전송을 중단했습니다.");
+            var done=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            held.ObserveDowns(words);
+            if(Interlocked.Increment(ref queued)==1)Interlocked.Exchange(ref queuedAt,Environment.TickCount64);
+            if(!commands.Writer.TryWrite((generation,words,done))){Interlocked.Decrement(ref queued);throw new IOException("입력 큐가 사용 중입니다.");}
+            if(!await done.Task.WaitAsync(TimeSpan.FromSeconds(3),cancellation.Token))throw new IOException("텍스트 입력이 중단되었습니다.");
+        }
+        try
+        {
+            long began=Environment.TickCount64;
+            while(physicalKeys.Count!=0)
+            {
+                if(!active||generation!=Interlocked.Read(ref epoch))throw new OperationCanceledException();
+                if(Environment.TickCount64-began>3000)throw new IOException("키보드에서 손을 뗀 뒤 다시 전송하세요.");
+                await Task.Delay(25,cancellation.Token);
+            }
+            foreach(var release in held.SnapshotReleases().Chunk(12))await Send(release);
+            foreach(var step in steps)
+            {
+                foreach(ushort word in step.Words){await Send([word]);await Task.Delay(10,cancellation.Token);}
+                await Task.Delay(step.DelayMs,cancellation.Token);
+            }
+        }
+        catch{Emergency("텍스트 전송을 중단하고 PC로 복귀했습니다.",false);throw;}
+        finally{ScriptRunning=false;}
+    }
 
     public InputEngine()
     {
@@ -79,7 +119,7 @@ internal sealed class InputEngine : IDisposable
     public void Activate(DeviceClient device,string id,int width,int height,Box pixels,double entryX=0.5,double entryY=0.5)
     {
         if(Volatile.Read(ref queued)!=0)throw new InvalidOperationException("이전 입력을 정리 중입니다. 잠시 후 다시 전환하세요.");
-        StartMonitoring();client=device;GetCursorPos(out restore);anchor=new(){X=(int)(pixels.X+pixels.Width/2),Y=(int)(pixels.Y+pixels.Height/2)};
+        StartMonitoring();specialHeld.Clear();client=device;GetCursorPos(out restore);anchor=new(){X=(int)(pixels.X+pixels.Width/2),Y=(int)(pixels.Y+pixels.Height/2)};
         lock(sync){maxX=width-1;maxY=height-1;vx=maxX*Math.Clamp(entryX,0,1);vy=maxY*Math.Clamp(entryY,0,1);held.Reset();buttons=0;wheelRemainder=0;}
         if(!SetPhysicalCursorPos(anchor.X,anchor.Y))throw new InvalidOperationException("커서 기준점을 설정하지 못했습니다.");
         Interlocked.Increment(ref epoch);TargetId=id;lastAck=Environment.TickCount64;heartbeat=lastAck;active=true;
@@ -91,7 +131,7 @@ internal sealed class InputEngine : IDisposable
         // A queued key-up may be discarded by emergency cancellation before it is sent.
         held.ObserveDowns(words);
         if(Interlocked.Increment(ref queued)==1)Interlocked.Exchange(ref queuedAt,Environment.TickCount64);
-        if(commands.Writer.TryWrite((Interlocked.Read(ref epoch),words)))return true;
+        if(commands.Writer.TryWrite((Interlocked.Read(ref epoch),words,null)))return true;
         Interlocked.Decrement(ref queued);Emergency("입력 큐가 가득 차 PC로 복귀했습니다.",false);return false;
     }
     private async Task Worker()
@@ -103,14 +143,14 @@ internal sealed class InputEngine : IDisposable
                 bool work=false;
                 while(commands.Reader.TryRead(out var item))
                 {
-                    work=true;
+                    work=true;bool sent=false;
                     try
                     {
                         if(active&&item.Epoch==Interlocked.Read(ref epoch)&&client!=null)
-                        {await FlushMotion();if(active&&item.Epoch==Interlocked.Read(ref epoch)){await client.Command(item.Words,lifetime.Token);Interlocked.Exchange(ref lastAck,Environment.TickCount64);}}
+                        {await FlushMotion();if(active&&item.Epoch==Interlocked.Read(ref epoch)){await client.Command(item.Words,lifetime.Token);sent=true;Interlocked.Exchange(ref lastAck,Environment.TickCount64);}}
                     }
                     catch(Exception ex)when(ex is not OperationCanceledException){Emergency("장치 전송 오류: "+ex.Message,false);}
-                    finally{Interlocked.Decrement(ref queued);}
+                    finally{Interlocked.Decrement(ref queued);item.Completion?.TrySetResult(sent);}
                 }
                 try{if(active)await FlushMotion();}
                 catch(Exception ex)when(ex is not OperationCanceledException){Emergency("마우스 전송 오류: "+ex.Message,false);}
@@ -139,6 +179,7 @@ internal sealed class InputEngine : IDisposable
     private nint Mouse(int code,nuint message,nint pointer)
     {
         if(code<0||!active)return CallNextHookEx(mouseHook,code,message,pointer);
+        if(ScriptRunning)return 1;
         try
         {
             var data=Marshal.PtrToStructure<MouseData>(pointer);
@@ -195,7 +236,7 @@ internal sealed class InputEngine : IDisposable
             int modifiers=(ctrl?1:0)|(alt?2:0)|(shift?4:0)|(win?8:0);
             if(!up&&!EditingShortcut)
             {
-                var shortcut=ShortcutRouter.Resolve((int)key.Virtual,modifiers,active,ReturnShortcut,LastDeviceShortcut,DeviceShortcuts);
+                var shortcut=ShortcutRouter.Resolve((int)key.Virtual,modifiers,active||Connecting,ReturnShortcut,LastDeviceShortcut,DeviceShortcuts);
                 if(shortcut.Action!=ShortcutAction.None)
                 {
                     consumed.Add(key.Virtual);if(repeated)return 1;
@@ -206,6 +247,12 @@ internal sealed class InputEngine : IDisposable
                 }
             }
             if(!active)return CallNextHookEx(keyHook,code,message,pointer);
+            if(ScriptRunning){if(!up&&key.Virtual==0x1b)Emergency("Esc로 텍스트 전송을 취소했습니다.",false);return 1;}
+            if(!EditingShortcut&&ClipboardCtrlV&&!up&&key.Virtual==0x56&&modifiers==1)
+            {consumed.Add(key.Virtual);if(!repeated)PasteRequested?.Invoke();return 1;}
+            if(up&&specialHeld.Remove(key.Virtual,out var previous))return Enqueue([AdvancedInput.SpecialCommand(previous,true)])?1:CallNextHookEx(keyHook,code,message,pointer);
+            if(!EditingShortcut&&!up&&key.Virtual is >=0x70 and <=0x7b&&SpecialKeyMap.ElementAtOrDefault((int)key.Virtual-0x70) is int special)
+            {if(repeated)return 1;specialHeld[key.Virtual]=special;return Enqueue([AdvancedInput.SpecialCommand(special,false)])?1:CallNextHookEx(keyHook,code,message,pointer);}
             ushort? command=ScanCodes.Command((int)key.Scan,(key.Flags&1)!=0,up);
             if(key.Virtual==0x15&&KoreanCtrlSpace)
             {

@@ -6,6 +6,41 @@ static void Require(bool condition,string description)
     if(!condition)throw new Exception(description);
     Console.WriteLine("PASS "+description);
 }
+var startupXml=System.Xml.Linq.XDocument.Parse(StartupTaskDefinition.Create(Path.Combine(Path.GetTempPath(),"EasyBlue & test","EasyBlue.Desktop.exe"),"S-1-5-21-123-456-789-1001"));
+System.Xml.Linq.XNamespace startupNs="http://schemas.microsoft.com/windows/2004/02/mit/task";
+string? StartupValue(string name)=>startupXml.Descendants(startupNs+name).FirstOrDefault()?.Value;
+Require(StartupValue("Command")==Path.Combine(Path.GetTempPath(),"EasyBlue & test","EasyBlue.Desktop.exe"),"startup paths with spaces and XML characters round trip");
+Require(StartupValue("WorkingDirectory")==Path.Combine(Path.GetTempPath(),"EasyBlue & test"),"startup working directory is explicit");
+Require(StartupValue("Arguments")=="--background","startup launches in tray mode");
+Require(startupXml.Descendants(startupNs+"UserId").All(e=>e.Value=="S-1-5-21-123-456-789-1001")&&startupXml.Descendants(startupNs+"UserId").Count()==2,"startup trigger and principal are scoped to the same user");
+Require(StartupValue("LogonType")=="InteractiveToken"&&StartupValue("RunLevel")=="LeastPrivilege","startup uses interactive user without password or elevation");
+Require(StartupValue("Delay")=="PT10S","startup allows desktop initialization before launch");
+Require(startupXml.Descendants(startupNs+"LogonTrigger").Single().Elements().Select(e=>e.Name.LocalName).SequenceEqual(new[]{"Enabled","UserId","Delay"}),"startup logon trigger follows Windows schema order");
+Require(StartupValue("DisallowStartIfOnBatteries")=="false"&&StartupValue("StopIfGoingOnBatteries")=="false","startup continues on battery power");
+Require(StartupValue("RunOnlyIfIdle")=="false"&&StartupValue("RunOnlyIfNetworkAvailable")=="false","startup does not depend on idle time or network");
+Require(StartupValue("ExecutionTimeLimit")=="PT0S"&&StartupValue("AllowHardTerminate")=="false","startup does not kill the tray app after 72 hours");
+Require(StartupValue("MultipleInstancesPolicy")=="IgnoreNew","startup ignores duplicate task launches");
+Require(StartupValue("Interval")=="PT1M"&&StartupValue("Count")=="3","startup crash retries are bounded");
+if(args.Length==2&&args[0]=="--startup-xml")File.WriteAllText(args[1],startupXml.ToString());
+
+Require(Enumerable.Range(32,95).All(c=>AdvancedInput.Ascii((char)c)!=null),"clipboard covers every printable US ASCII character");
+Require(AdvancedInput.Ascii('@')==(31,2)&&AdvancedInput.Ascii('0')==(39,0),"clipboard shifted number symbols preserve HID positions");
+Require(AdvancedInput.ClipboardPlan("a\r\nb\rc",new(Layout:"US")).Count==5,"clipboard normalizes CRLF and CR to one newline");
+var hangulPlan=AdvancedInput.ClipboardPlan("한",new());
+Require(hangulPlan.Count==5&&hangulPlan[1].Words.Contains((ushort)0x240a)&&hangulPlan[2].Words.Contains((ushort)0x240e)&&hangulPlan[3].Words.Contains((ushort)0x2416),"clipboard Hangul syllables decompose into two-set keystrokes");
+Require(hangulPlan.First().Words.SequenceEqual(AdvancedInput.Stroke(44,1))&&hangulPlan.Last().Words.SequenceEqual(AdvancedInput.Stroke(44,1)),"clipboard restores the declared initial language state");
+Require(AdvancedInput.ClipboardPlan("ㄱㅏ",new()).Count==4,"clipboard supports Korean compatibility jamo");
+Require(AdvancedInput.ClipboardPlan("한A",new(LanguageSwitch:"Hangul")).Count==6,"clipboard switches language between Korean and Latin text");
+foreach(var options in new[]{new ClipboardOptions(),new ClipboardOptions(Layout:"US")})
+{bool rejected=false;try{AdvancedInput.ClipboardPlan("hello😀",options);}catch(ArgumentException){rejected=true;}Require(rejected,"clipboard rejects unsupported Unicode before any transmission");}
+{bool rejected=false;try{AdvancedInput.ClipboardPlan(new string('a',20001),new());}catch(ArgumentException){rejected=true;}Require(rejected,"clipboard bounds paste length");}
+Require(AdvancedInput.SpecialCommand(17,false)==0x2c11&&AdvancedInput.SpecialCommand(17,true)==0x2d11,"special home key uses original press and release protocol");
+{var release=new KeyReleaseLedger();release.ObserveDowns([0x2c11]);Require(release.SnapshotReleases().Contains((ushort)0x2d11),"special keys are released after emergency cancellation");release.ConfirmReleased([0x2d11]);Require(!release.SnapshotReleases().Contains((ushort)0x2d11),"special key release acknowledgements clear the ledger");}
+var advancedPreferences=(new UserPreferences{SpecialKeyGroups=[new("custom",[17,999])],ActiveSpecialGroup=99,Clipboard=new(DelayMs:0)}).Validate();
+Require(advancedPreferences.SpecialKeyGroups.Count==4&&advancedPreferences.SpecialKeyGroups.All(g=>g.Keys.Length==12)&&advancedPreferences.SpecialKeyGroups[0].Keys[1]==null,"special group validation fills four groups and rejects unknown device codes");
+Require(advancedPreferences.ActiveSpecialGroup==3&&advancedPreferences.Clipboard.DelayMs==10,"advanced input settings bound group selection and pacing");
+Require(StartupValue("Priority")=="5","scheduled input app retains normal interactive priority");
+
 foreach(int count in new[]{1,4,5,12})
 {
     ushort[] words=Enumerable.Range(0,count).Select(x=>(ushort)(0x2400+x)).ToArray();

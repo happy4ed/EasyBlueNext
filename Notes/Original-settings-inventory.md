@@ -13,8 +13,8 @@
 | LangSwitchKey | 한/영 Ctrl+Space 또는 기본 HID 한/영 전송 |
 | MOUSE/Speed / Sensitivity / Threshold1 / Threshold2 / ThresLevel | 속도와 선택적 새 가속, 스크롤 배율. 원본 곡선과 임계값의 개별 숫자 편집 전체는 미이식 |
 | KeyMapUse / KeyMapVer / KeyMapNum / KeyMapGrp1~4 | 버전/개수는 동글 키맵 메타데이터. 원본 저장 키맵 편집/변환은 미이식 |
-| SPECIAL/Group1~4 / Active / GroupName1~4 / SpcKeyGroup1~4 | 원본 특수키 그룹 편집은 미이식. 기존 설정 앱 열기 제공 |
-| PASTE/Locale / Target_OS / CtrlVOn | PC 클립보드 변환·폰 문자 입력 전송 전체 미이식. 기존 설정 앱 열기 제공. 기본 Ctrl+V 키 전달과 PC 클립보드 전송은 다른 기능 |
+| SPECIAL/Group1~4 / Active / GroupName1~4 / SpcKeyGroup1~4 | 새 앱의 4개 특수키 그룹에서 F1~F12 변환 및 그룹 이름 설정. 원본 2C/2D 누름·해제 코드 사용. 원본 설정 파일 직접 가져오기는 미이식 |
+| PASTE/Locale / Target_OS / CtrlVOn | 새 앱 입력 설정에서 대상 OS, US/한국어 두벌식, 한/영 키, 초기 언어, 속도, Ctrl+V 전송과 수동 텍스트 보내기 지원. 프랑스/독일 배열·이모지·이미지 미지원. 미지원 문자는 전송 전에 거부 |
 | ReconnUse1~4 / WinHotkey | 원본 재연결 정책/Windows 단축키별 예외 전체 미이식. 새 앱은 명시적 대상 전환과 실패 시 PC 복귀 |
 | HelpMsgOn | 현재 도움말/상태 설명 제공. 원본 안내창 설정은 미이식 |
 | Version / SIGNATURE / Boot / DeviceFunc / DeviceMac / PrevVersion / OpenDate | 앱·동글 메타데이터. 일반 사용자 토글로 노출하지 않음 |
